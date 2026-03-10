@@ -1,5 +1,5 @@
 # IDS Vault 🛡️
-##📱 App Preview
+## 📱 App Preview
 <p align="center">
   <img src="screenshots/Screenshot%202026-03-03%20123138.png" width="160" style="margin: 10px;" />
   <img src="screenshots/Screenshot%202026-03-03%20140308.png" width="160" style="margin: 10px;" />
