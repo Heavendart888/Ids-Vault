@@ -1,11 +1,11 @@
 # IDS Vault 🛡️
 ##📱 App Preview
 <p align="center">
-<img src="screenshots/Screenshot%202026-03-03%20123138.png" width="180" />
-<img src="screenshots/Screenshot%202026-03-03%20140308.png" width="180" />
-<img src="screenshots/Screenshot%202026-03-03%20140328.png" width="180" />
-<img src="screenshots/Screenshot%202026-03-05%20150223.png" width="180" />
-<img src="screenshots/Screenshot%202026-03-06%20201819.png" width="180" />
+  <img src="screenshots/Screenshot%202026-03-03%20123138.png" width="160" style="margin: 10px;" />
+  <img src="screenshots/Screenshot%202026-03-03%20140308.png" width="160" style="margin: 10px;" />
+  <img src="screenshots/Screenshot%202026-03-03%20140328.png" width="160" style="margin: 10px;" />
+  <img src="screenshots/Screenshot%202026-03-05%20150223.png" width="160" style="margin: 10px;" />
+  <img src="screenshots/Screenshot%202026-03-06%20201819.png" width="160" style="margin: 10px;" />
 </p>
 
 A privacy-first, zero-knowledge digital document locker designed to securely store sensitive government IDs (Aadhaar, PAN, Driver's License) completely offline.
