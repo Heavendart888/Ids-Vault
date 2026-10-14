@@ -18,6 +18,8 @@ dependencies:
   camera: ^0.12.0
   share_plus: ^12.0.1
   file_picker: ^10.3.10
+  archive: ^3.6.1
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:

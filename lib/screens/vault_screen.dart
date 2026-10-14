@@ -7,8 +7,7 @@ import '../core/crypto_service.dart';
 import '../models/secure_document.dart';
 import 'auth_screen.dart';
 import 'camera_screen.dart';
-
-// IMPORTANT: Import main.dart to access the global isIntentionalPause variable
+import 'password_screen.dart';
 import '../main.dart'; 
 
 class VaultScreen extends StatefulWidget {
@@ -52,8 +51,7 @@ class _VaultScreenState extends State<VaultScreen> {
       _allDocuments = files.map((f) => SecureDocument.fromFile(f)).toList();
       _displayedDocuments = List.from(_allDocuments);
       _isLoading = false;
-      
-      _onSearchChanged(); // Re-apply filter if list changes while searching
+      _onSearchChanged();
     });
   }
 
@@ -68,6 +66,121 @@ class _VaultScreenState extends State<VaultScreen> {
         }).toList();
       }
     });
+  }
+
+  Future<String?> _showPasswordDialog({required String title, required String confirmBtnText}) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          decoration: const InputDecoration(
+            hintText: 'Enter backup password',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final pwd = controller.text.trim();
+              if (pwd.length < 4) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Password must be at least 4 characters.')),
+                );
+                return;
+              }
+              Navigator.pop(context, pwd);
+            },
+            child: Text(confirmBtnText),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportBackup() async {
+    final password = await _showPasswordDialog(
+      title: 'Export Encrypted Backup',
+      confirmBtnText: 'Export',
+    );
+    if (password == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final backupFile = await _cryptoService.createEncryptedBackup(password);
+      setState(() => _isLoading = false);
+
+      isIntentionalPause = true;
+      await Share.shareXFiles(
+        [XFile(backupFile.path)],
+        text: 'IDS Vault Encrypted Backup',
+      );
+      isIntentionalPause = false;
+    } catch (e) {
+      isIntentionalPause = false;
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Backup failed: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
+  Future<void> _importBackup() async {
+    try {
+      isIntentionalPause = true;
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+      );
+      isIntentionalPause = false;
+
+      if (result == null || result.files.single.path == null) return;
+
+      final backupFile = File(result.files.single.path!);
+      if (!backupFile.path.endsWith('.vaultbackup')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please select a valid .vaultbackup file.')),
+          );
+        }
+        return;
+      }
+
+      final password = await _showPasswordDialog(
+        title: 'Enter Backup Password',
+        confirmBtnText: 'Restore',
+      );
+      if (password == null) return;
+
+      setState(() => _isLoading = true);
+      final restoredCount = await _cryptoService.restoreEncryptedBackup(backupFile, password);
+      await _loadDocuments();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Successfully restored $restoredCount document(s).'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      isIntentionalPause = false;
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Restore failed: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
   }
 
   void _showUploadOptions() {
@@ -90,9 +203,9 @@ class _VaultScreenState extends State<VaultScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.folder_open, color: Colors.tealAccent),
-                title: const Text('Import from Device Storage'),
-                subtitle: const Text('Pick from Gallery, Downloads, or Drive.'),
+                leading: const Icon(Icons.photo_library, color: Colors.tealAccent),
+                title: const Text('Import Multiple Photos'),
+                subtitle: const Text('Select one or more images from storage.'),
                 onTap: () {
                   Navigator.pop(context);
                   _importFromStorage();
@@ -106,7 +219,6 @@ class _VaultScreenState extends State<VaultScreen> {
   }
 
   Future<void> _captureFromCamera() async {
-    // 1. Give the app a Hall Pass so the camera screen doesn't lock it
     isIntentionalPause = true;
 
     final String? imagePath = await Navigator.push(
@@ -114,7 +226,6 @@ class _VaultScreenState extends State<VaultScreen> {
       MaterialPageRoute(builder: (_) => const CameraScreen()),
     );
 
-    // 2. Revoke the Hall Pass immediately when returning from camera
     isIntentionalPause = false;
 
     if (imagePath == null) return;
@@ -129,50 +240,116 @@ class _VaultScreenState extends State<VaultScreen> {
 
   Future<void> _importFromStorage() async {
     try {
-      // 1. Give the app a Hall Pass before opening the native Android gallery
       isIntentionalPause = true;
 
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom, 
         allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'], 
-        allowMultiple: false,
+        allowMultiple: true,
       );
 
-      // 2. Revoke the Hall Pass immediately when they pick a file or cancel
       isIntentionalPause = false;
 
-      if (result != null && result.files.single.path != null) {
-        File pickedFile = File(result.files.single.path!);
+      if (result == null || result.paths.isEmpty) return;
 
-        final String? docType = await _askForDocumentType();
-        if (docType != null) {
-          setState(() => _isLoading = true);
-          await _cryptoService.encryptAndSaveFile(pickedFile, docType, deleteTempFile: true);
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Saved to Vault. Manually delete original if highly sensitive.'),
-                duration: Duration(seconds: 4),
-              ),
-            );
-          }
-          await _loadDocuments();
-        }
+      final List<File> pickedFiles = result.paths
+          .whereType<String>()
+          .map((path) => File(path))
+          .toList();
+
+      if (pickedFiles.isEmpty) return;
+
+      String? defaultType;
+      if (pickedFiles.length > 1) {
+        defaultType = await _askBatchDocumentType(pickedFiles.length);
+        if (defaultType == null) return;
       }
+
+      setState(() => _isLoading = true);
+
+      for (int i = 0; i < pickedFiles.length; i++) {
+        final File file = pickedFiles[i];
+        String docType = defaultType ?? '';
+
+        if (docType.isEmpty || docType == 'AskEach') {
+          final chosen = await _askForDocumentType(
+            title: 'Type for photo ${i + 1} of ${pickedFiles.length}',
+          );
+          if (chosen == null) continue;
+          docType = chosen;
+        }
+
+        await _cryptoService.encryptAndSaveFile(
+          file, 
+          docType, 
+          deleteTempFile: false,
+          fileSuffix: i,
+        );
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${pickedFiles.length} photo(s) added to Vault.'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+
+      await _loadDocuments();
     } catch (e) {
-      // Ensure the pass is revoked even if the file picker crashes
       isIntentionalPause = false;
-      debugPrint("Error picking file: $e");
+      setState(() => _isLoading = false);
+      debugPrint("Error picking files: $e");
     }
   }
 
-  Future<String?> _askForDocumentType() async {
+  Future<String?> _askBatchDocumentType(int count) async {
+    if (!mounted) return null;
+    return await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text('Import $count Photos'),
+        content: const Text(
+          'Do you want to assign the same category to all photos, or choose for each one individually?',
+        ),
+        actions: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ElevatedButton(
+                onPressed: () async {
+                  final chosen = await _askForDocumentType(title: 'Choose Common Category');
+                  if (context.mounted) {
+                    Navigator.pop(context, chosen);
+                  }
+                },
+                child: const Text('Same for All'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(context, 'AskEach'),
+                child: const Text('Choose Each'),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(context, null),
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _askForDocumentType({String title = 'Select Document Type'}) async {
     if (!mounted) return null;
     return await showDialog<String>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Select Document Type'),
+        title: Text(title),
         children: ['Aadhaar', 'PAN Card', 'License', 'Other'].map((type) {
           return SimpleDialogOption(
             onPressed: () => Navigator.pop(context, type),
@@ -238,7 +415,6 @@ class _VaultScreenState extends State<VaultScreen> {
       tempFile = await _cryptoService.exportTempDecryptedFile(doc.file, doc.docType);
       setState(() => _isLoading = false);
 
-      // Give Hall Pass before opening Android Share Menu
       isIntentionalPause = true;
 
       await Share.shareXFiles(
@@ -246,7 +422,6 @@ class _VaultScreenState extends State<VaultScreen> {
         text: 'Secure Document: ${doc.docType}'
       );
 
-      // Revoke Hall Pass
       isIntentionalPause = false;
 
       if (await tempFile.exists()) {
@@ -254,7 +429,7 @@ class _VaultScreenState extends State<VaultScreen> {
         debugPrint("Temporary unencrypted file securely destroyed.");
       }
     } catch (e) {
-      isIntentionalPause = false; // Always revoke on error
+      isIntentionalPause = false;
       setState(() => _isLoading = false);
       if (tempFile != null && await tempFile.exists()) {
         await tempFile.delete();
@@ -330,6 +505,7 @@ class _VaultScreenState extends State<VaultScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false, // ENSURES TEXT STAYS ON THE LEFT
         title: _isSearching
             ? TextField(
                 controller: _searchController,
@@ -342,7 +518,7 @@ class _VaultScreenState extends State<VaultScreen> {
                 style: const TextStyle(color: Colors.white, fontSize: 18),
                 cursorColor: Colors.white,
               )
-            : const Text('Secure Vault', style: TextStyle(fontWeight: FontWeight.bold)),
+            : const Text('Vault', style: TextStyle(fontWeight: FontWeight.bold)),
         elevation: 0,
         actions: [
           IconButton(
@@ -357,6 +533,48 @@ class _VaultScreenState extends State<VaultScreen> {
                 }
               });
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.vpn_key_outlined, color: Colors.amberAccent),
+            tooltip: 'Password Manager',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PasswordScreen()),
+              );
+            },
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'export') {
+                _exportBackup();
+              } else if (value == 'import') {
+                _importBackup();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'export',
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_upload_outlined, color: Colors.blueAccent),
+                    SizedBox(width: 8),
+                    Text('Backup / Export'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'import',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings_backup_restore, color: Colors.greenAccent),
+                    SizedBox(width: 8),
+                    Text('Restore / Import'),
+                  ],
+                ),
+              ),
+            ],
           ),
           IconButton(
             icon: const Icon(Icons.lock_outline),
@@ -405,9 +623,6 @@ class _VaultScreenState extends State<VaultScreen> {
             const Icon(Icons.fingerprint, size: 48, color: Colors.blueAccent),
             const SizedBox(height: 12),
             Text(doc.docType, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 4),
-            Text('${doc.dateAdded.day}/${doc.dateAdded.month}/${doc.dateAdded.year}', 
-                 style: const TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),
       ),
