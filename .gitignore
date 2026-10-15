@@ -48,7 +48,7 @@ app.*.map.json
 /android/app/release
 
 # --- FVM (Flutter Version Management) ---
-.fvm/flutter_sdk
+.fvm/
 
 # --- CYBERSECURITY & RELEASE SENSITIVE ---
 # VERY IMPORTANT: Keep these private! Never commit signing keys to GitHub.
